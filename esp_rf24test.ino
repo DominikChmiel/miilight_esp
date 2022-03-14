@@ -1,11 +1,19 @@
 #include <ArduinoOTA.h>
 #include <ESP8266HTTPClient.h>
+#include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 
 #include "RF24.h"
 #include "printf.h"
+#include "wifi.hpp"
 #include <SPI.h>
+
+ESaveWifi eWifi;
+
+ESP8266WebServer server(80);
+
+String header;
 
 // instantiate an object for the nRF24L01 transceiver
 RF24 radio(2, 4);   // using pin 7 for the CE pin, and pin 8 for the CSN pin
@@ -18,6 +26,8 @@ bool radioNumber = 1;   // 0 uses address[0] to transmit, 1 uses address[1] to t
 bool role = false;   // true = TX role, false = RX role
 
 uint8_t counter = 0;
+
+bool is_on = false;
 
 void setup() {
 
@@ -51,18 +61,20 @@ void setup() {
 
 	radio.stopListening();   // put radio in TX mode
 
-	delay(500);
-	sendCommand();
-	delay(500);
-	sendCommand();
-	delay(500);
-	radio.startListening();   // put radio in RX mode
+	// delay(500);
+	// sendCommand();
+	// delay(500);
+	// sendCommand();
+	// delay(500);
+	// radio.startListening();   // put radio in RX mode
 
 	radio.printDetails();
 	// For debugging info
 	// printf_begin();             // needed only once for printing details
 	// radio.printDetails();       // (smaller) function that prints raw register values
 	// radio.printPrettyDetails(); // (larger) function that prints human readable data
+	Serial.println("Starting wifi: OTA Enabled.");
+	eWifi.turnOn();
 
 	ArduinoOTA.onStart([]() { Serial.println("Start"); });
 	ArduinoOTA.onEnd([]() { Serial.println("\nEnd"); });
@@ -81,9 +93,48 @@ void setup() {
 			Serial.println("End Failed");
 	});
 	ArduinoOTA.begin();
+	server.on("/", HTTP_GET, handleRoot_GET);
+	server.on("/", HTTP_POST, handleRoot);
+	server.on("/toggle", HTTP_GET, handleRoot);
+	server.on("/force_toggle", handleForce);
+	server.begin();
 }   // setup
 
+String get_state() {
+	String res = "{\"state\": ";
+	if (is_on) {
+		res += "\"true\"";
+	} else {
+		res += "\"false\"";
+	}
+	res += "}";
+	return res;
+}
+
+void handleRoot_GET() {
+	is_on = !is_on;
+	server.send(200, "application/json", get_state());   // Send HTTP status 200 (Ok) and send some text to the browser/client
+}
+
+void handleRoot() {
+	sendCommand();
+	is_on = !is_on;
+	server.send(200, "application/json", get_state());   // Send HTTP status 200 (Ok) and send some text to the browser/client
+}
+
+void handleForce() {
+	sendCommand();
+	server.send(200, "application/json", get_state());   // Send HTTP status 404 (Not Found) when there's no handler for the URI in the request
+}
+
 void loop() {
+	Serial.println("Loop");
+	ArduinoOTA.handle();
+	server.handleClient();
+}   // loop
+
+void listenCommands() {
+	radio.startListening();   // put radio in RX mode
 	byte data[18] = {0};
 
 	radio.read(&data, sizeof(data));
@@ -126,8 +177,7 @@ void loop() {
 		Serial.println("=========================");
 		Serial.println();
 	}
-
-}   // loop
+}
 
 void sendCommand() {
 	uint8_t command_base[11] = {
@@ -144,27 +194,27 @@ void sendCommand() {
 		0x3F,
 	};
 	// Captured sequences from remote
-	uint8_t commands[6][6] = {
-		{0xEA, 0x20, 0x20, 0x30, 0x26, 0xAB},
+	uint8_t commands[2][6] = {
+		// {0xEA, 0x20, 0x20, 0x30, 0x26, 0xAB},
 
 		{0xF0, 0xE0, 0x20, 0x2A, 0xC0, 0x23},
 
 		{0xF5, 0x60, 0x20, 0x34, 0xB4, 0xD6},
 
-		{0xF5, 0x60, 0x20, 0x34, 0xB4, 0xD6},
+		// {0xF5, 0x60, 0x20, 0x34, 0xB4, 0xD6},
 
-		{0xF5, 0x60, 0x20, 0x34, 0xB4, 0xD6},
+		// {0xF5, 0x60, 0x20, 0x34, 0xB4, 0xD6},
 
-		{0xF5, 0x60, 0x20, 0x34, 0xB4, 0xD6},
+		// {0xF5, 0x60, 0x20, 0x34, 0xB4, 0xD6},
 	};
 
-	counter++;
+	counter = ((counter + 1) % (sizeof(commands) / sizeof(commands[0])));
 
 	// Send repeatedly, response is unreliable otherwise
 	for (int i = 0; i < 17; i++) {
 		uint8_t full_command[17];
 		memcpy(&full_command[0], &command_base[0], sizeof(command_base));
-		memcpy(&full_command[11], &commands[counter % 6][0], sizeof(commands[0]));
+		memcpy(&full_command[11], &commands[counter][0], sizeof(commands[0]));
 		bool report = radio.write(full_command, sizeof(full_command), true);
 
 		if (!report) {
@@ -172,6 +222,8 @@ void sendCommand() {
 		}
 
 		// Without the delay, it'll work some times and not others
-		delay(20);
+		delay(30);
 	}
+	Serial.print("Send command ");
+	Serial.println(counter, HEX);
 }

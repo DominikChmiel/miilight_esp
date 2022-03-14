@@ -11,6 +11,8 @@ ESaveWifi::ESaveWifi() {
 	m_isOn = false;
 }
 
+String newHostname = "MiiLight";
+
 auto ESaveWifi::turnOn() -> bool {
 	using rtcMem::gRTC;
 	if (m_isOn) {
@@ -23,6 +25,7 @@ auto ESaveWifi::turnOn() -> bool {
 	delay(1);
 	m_wifi.persistent(false);
 	m_wifi.mode(WIFI_STA);
+	m_wifi.hostname(newHostname.c_str());
 
 	LOGLN("Connecting to ");
 	LOGLN(SSID);
