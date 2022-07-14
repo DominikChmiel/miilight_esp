@@ -19,8 +19,6 @@ String header;
 // instantiate an object for the nRF24L01 transceiver
 RF24 radio(2, 4);
 
-uint8_t counter = 0;
-
 void setup() {
     using rtcMem::gRTC;
 
@@ -172,6 +170,7 @@ void listenCommands() {
 }
 
 void sendCommand() {
+    using rtcMem::gRTC;
     uint8_t command_base[11] = {
         0x67,
         0x22,
@@ -200,13 +199,13 @@ void sendCommand() {
         // {0xF5, 0x60, 0x20, 0x34, 0xB4, 0xD6},
     };
 
-    counter = ((counter + 1) % (sizeof(commands) / sizeof(commands[0])));
+    gRTC.counter = ((gRTC.counter + 1) % (sizeof(commands) / sizeof(commands[0])));
 
     // Send repeatedly, response is unreliable otherwise
     for (int i = 0; i < 17; i++) {
         uint8_t full_command[17];
         memcpy(&full_command[0], &command_base[0], sizeof(command_base));
-        memcpy(&full_command[11], &commands[counter][0], sizeof(commands[0]));
+        memcpy(&full_command[11], &commands[gRTC.counter][0], sizeof(commands[0]));
         bool report = radio.write(full_command, sizeof(full_command), true);
 
         if (!report) {
@@ -217,5 +216,5 @@ void sendCommand() {
         delay(30);
     }
     Serial.print("Send command ");
-    Serial.println(counter, HEX);
+    Serial.println(gRTC.counter, HEX);
 }
