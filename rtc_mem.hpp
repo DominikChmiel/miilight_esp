@@ -4,7 +4,7 @@
 #include "config.hpp"
 
 namespace rtcMem {
-#define MEM_VERSION 3
+#define MEM_VERSION 4
 typedef struct {
 	// Header
 	uint32_t crc32;
@@ -17,6 +17,8 @@ typedef struct {
 	uint32_t gateway_addr;
 	uint32_t netmask;
 	uint32_t dns_addr;
+
+	bool is_on;
 
 } rtcData;
 

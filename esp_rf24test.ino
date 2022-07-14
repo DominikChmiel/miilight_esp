@@ -6,6 +6,7 @@
 
 #include "RF24.h"
 #include "printf.h"
+#include "rtc_mem.hpp"
 #include "wifi.hpp"
 #include <SPI.h>
 
@@ -18,91 +19,88 @@ String header;
 // instantiate an object for the nRF24L01 transceiver
 RF24 radio(2, 4);   // using pin 7 for the CE pin, and pin 8 for the CSN pin
 
-// to use different addresses on a pair of radios, we need a variable to
-// uniquely identify which address this radio will use to transmit
-bool radioNumber = 1;   // 0 uses address[0] to transmit, 1 uses address[1] to transmit
-
-// Used to control whether this node is sending or receiving
-bool role = false;   // true = TX role, false = RX role
-
 uint8_t counter = 0;
+void    setup() {
+	   using rtcMem::gRTC;
 
-bool is_on = false;
+	   Serial.begin(115200);
+	   while (!Serial) {
+		   // some boards need to wait to ensure access to serial over USB
+    }
 
-void setup() {
+	   // initialize the transceiver on the SPI bus
+	   if (!radio.begin()) {
+		   Serial.println(F("radio hardware is not responding!!"));
+		   while (1) {
+        }   // hold in infinite loop
+    }
 
-	Serial.begin(115200);
-	while (!Serial) {
-		// some boards need to wait to ensure access to serial over USB
-	}
+	   radio.setChannel(68);
+	   radio.setDataRate(RF24_2MBPS);
+	   radio.disableCRC();
+	   radio.disableDynamicPayloads();
+	   radio.setPayloadSize(17);
+	   radio.setAutoAck(false);
+	   radio.setPALevel(RF24_PA_LOW);
+	   radio.setRetries(15, 15);
 
-	// initialize the transceiver on the SPI bus
-	if (!radio.begin()) {
-		Serial.println(F("radio hardware is not responding!!"));
-		while (1) {
-		}   // hold in infinite loop
-	}
+	   // set the TX address of the RX node into the TX pipe
+	   uint8_t address[6] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+	   radio.openWritingPipe(address);   // always uses pipe 0
 
-	radio.setChannel(68);
-	radio.setDataRate(RF24_2MBPS);
-	radio.disableCRC();
-	radio.disableDynamicPayloads();
-	radio.setPayloadSize(17);
-	radio.setAutoAck(false);
-	radio.setPALevel(RF24_PA_LOW);
-	radio.setRetries(15, 15);
+	   // set the RX address of the TX node into a RX pipe
+	   radio.openReadingPipe(0, address);   // using pipe 1
 
-	// set the TX address of the RX node into the TX pipe
-	uint8_t address[6] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
-	radio.openWritingPipe(address);   // always uses pipe 0
+	   radio.stopListening();   // put radio in TX mode
 
-	// set the RX address of the TX node into a RX pipe
-	radio.openReadingPipe(0, address);   // using pipe 1
+	   // delay(500);
+	   // sendCommand();
+	   // delay(500);
+	   // sendCommand();
+	   // delay(500);
+	   // radio.startListening();   // put radio in RX mode
 
-	radio.stopListening();   // put radio in TX mode
+	   radio.printDetails();
+	   // For debugging info
+	   // printf_begin();             // needed only once for printing details
+	   // radio.printDetails();       // (smaller) function that prints raw register values
+	   // radio.printPrettyDetails(); // (larger) function that prints human readable data
+	   Serial.println("Starting wifi: OTA Enabled.");
+	   eWifi.turnOn();
 
-	// delay(500);
-	// sendCommand();
-	// delay(500);
-	// sendCommand();
-	// delay(500);
-	// radio.startListening();   // put radio in RX mode
+	   ArduinoOTA.onStart([]() { Serial.println("Start"); });
+	   ArduinoOTA.onEnd([]() { Serial.println("\nEnd"); });
+	   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); });
+	   ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR)
+            Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR)
+            Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR)
+            Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR)
+            Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR)
+            Serial.println("End Failed");
+    });
+	   ArduinoOTA.begin();
+	   server.on("/", HTTP_GET, handleRoot_GET);
+	   server.on("/", HTTP_POST, handleRoot);
+	   server.on("/toggle", HTTP_GET, handleRoot);
+	   server.on("/force_toggle", handleForce);
+	   server.begin();
 
-	radio.printDetails();
-	// For debugging info
-	// printf_begin();             // needed only once for printing details
-	// radio.printDetails();       // (smaller) function that prints raw register values
-	// radio.printPrettyDetails(); // (larger) function that prints human readable data
-	Serial.println("Starting wifi: OTA Enabled.");
-	eWifi.turnOn();
-
-	ArduinoOTA.onStart([]() { Serial.println("Start"); });
-	ArduinoOTA.onEnd([]() { Serial.println("\nEnd"); });
-	ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); });
-	ArduinoOTA.onError([](ota_error_t error) {
-		Serial.printf("Error[%u]: ", error);
-		if (error == OTA_AUTH_ERROR)
-			Serial.println("Auth Failed");
-		else if (error == OTA_BEGIN_ERROR)
-			Serial.println("Begin Failed");
-		else if (error == OTA_CONNECT_ERROR)
-			Serial.println("Connect Failed");
-		else if (error == OTA_RECEIVE_ERROR)
-			Serial.println("Receive Failed");
-		else if (error == OTA_END_ERROR)
-			Serial.println("End Failed");
-	});
-	ArduinoOTA.begin();
-	server.on("/", HTTP_GET, handleRoot_GET);
-	server.on("/", HTTP_POST, handleRoot);
-	server.on("/toggle", HTTP_GET, handleRoot);
-	server.on("/force_toggle", handleForce);
-	server.begin();
+	   if (!rtcMem::read()) {
+		   Serial.println("Reading RTC data failed.");
+		   gRTC.is_on = false;
+    }
 }   // setup
 
 String get_state() {
+	using rtcMem::gRTC;
 	String res = "{\"state\": ";
-	if (is_on) {
+	if (gRTC.is_on) {
 		res += "\"true\"";
 	} else {
 		res += "\"false\"";
@@ -112,13 +110,14 @@ String get_state() {
 }
 
 void handleRoot_GET() {
-	is_on = !is_on;
 	server.send(200, "application/json", get_state());   // Send HTTP status 200 (Ok) and send some text to the browser/client
 }
 
 void handleRoot() {
+	using rtcMem::gRTC;
 	sendCommand();
-	is_on = !is_on;
+	gRTC.is_on = !gRTC.is_on;
+	rtcMem::write();
 	server.send(200, "application/json", get_state());   // Send HTTP status 200 (Ok) and send some text to the browser/client
 }
 
@@ -128,7 +127,6 @@ void handleForce() {
 }
 
 void loop() {
-	Serial.println("Loop");
 	ArduinoOTA.handle();
 	server.handleClient();
 }   // loop
